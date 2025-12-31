@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflare-ddns-config
+  namespace: cloudflare-ddns
+data:
+  # Comma-separated list of domains to update
+  # Format: subdomain.domain.tld,subdomain2.domain.tld
+  DOMAINS: "<FILL_IN_DOMAINS>"
+  ZONE_ID: "<FILL_IN_ZONE_ID>"

@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cloudflare-ddns
+  namespace: cloudflare-ddns
+spec:
+  # Run every hour at the top of the hour
+  schedule: "0 * * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: cloudflare-ddns
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: cloudflare-ddns
+            image: curlimages/curl:latest
+            command:
+            - /bin/sh
+            - /scripts/update-dns.sh
+            env:
+            - name: DOMAINS
+              valueFrom:
+                configMapKeyRef:
+                  name: cloudflare-ddns-config
+                  key: DOMAINS
+            - name: ZONE_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: cloudflare-ddns-config
+                  key: ZONE_ID
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflare-ddns-secret
+                  key: API_TOKEN
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+          volumes:
+          - name: scripts
+            configMap:
+              name: cloudflare-ddns-script
+              defaultMode: 0755
