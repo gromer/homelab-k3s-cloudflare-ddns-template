@@ -1,0 +1,88 @@
+name: Configuration validation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kustomize-render:
+    name: Kustomize render
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install kubectl v1.36.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl_version="v1.36.1"
+          kubectl_url="https://dl.k8s.io/release/${kubectl_version}/bin/linux/amd64/kubectl"
+          curl --fail --location --silent --show-error "${kubectl_url}" --output "${RUNNER_TEMP}/kubectl"
+          curl --fail --location --silent --show-error "${kubectl_url}.sha256" --output "${RUNNER_TEMP}/kubectl.sha256"
+          printf '%s  %s\n' "$(cat "${RUNNER_TEMP}/kubectl.sha256")" "${RUNNER_TEMP}/kubectl" | sha256sum --check --status || {
+            echo "kubectl ${kubectl_version} checksum verification failed" >&2
+            exit 1
+          }
+          chmod +x "${RUNNER_TEMP}/kubectl"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Render repository Kustomize configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          secret_path="k8s/secret.yaml"
+          if [[ -e "${secret_path}" ]]; then
+            echo "Refusing to overwrite existing generated Secret" >&2
+            exit 1
+          fi
+          trap 'rm -f "${secret_path}"' EXIT
+          cat > "${secret_path}" <<'SECRET'
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cloudflare-ddns-secret
+            namespace: cloudflare-ddns
+          type: Opaque
+          data: {}
+          SECRET
+          kubectl kustomize k8s/ > /dev/null
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install ShellCheck v0.11.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          shellcheck_version="v0.11.0"
+          archive="shellcheck-${shellcheck_version}.linux.x86_64.tar.xz"
+          url="https://github.com/koalaman/shellcheck/releases/download/${shellcheck_version}/${archive}"
+          curl --fail --location --silent --show-error "${url}" --output "${RUNNER_TEMP}/${archive}"
+          printf '%s  %s\n' '8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198' "${RUNNER_TEMP}/${archive}" | sha256sum --check --status || {
+            echo "ShellCheck ${shellcheck_version} checksum verification failed" >&2
+            exit 1
+          }
+          tar -xJf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}"
+          echo "${RUNNER_TEMP}/shellcheck-${shellcheck_version}" >> "${GITHUB_PATH}"
+
+      - name: Check updater shell syntax and patterns
+        run: shellcheck -s sh scripts/update-dns.sh
